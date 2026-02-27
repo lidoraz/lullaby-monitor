@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crybaby Monitor</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+    <!-- ===== SIDEBAR ===== -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <span class="logo">🍼 crybaby</span>
+            <button id="btn-settings" title="Settings">⚙️</button>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats-card" class="stats-card hidden">
+            <div class="stat"><span id="stat-recs">—</span><small>recordings</small></div>
+            <div class="stat"><span id="stat-events">—</span><small>events</small></div>
+            <div class="stat"><span id="stat-dates">—</span><small>days</small></div>
+        </div>
+
+        <!-- Process panel -->
+        <div class="process-section">
+            <input id="inp-source" type="text" placeholder="/path/to/videos" />
+            <div class="process-btns">
+                <button id="btn-process" class="btn-primary">▶ Analyse</button>
+                <label class="chk-label">
+                    <input type="checkbox" id="chk-force" />
+                    re-process
+                </label>
+            </div>
+            <!-- Progress bar -->
+            <div id="progress-wrap" class="hidden">
+                <div id="progress-bar">
+                    <div id="progress-fill"></div>
+                </div>
+                <div id="progress-msg">…</div>
+            </div>
+        </div>
+
+        <!-- Date list -->
+        <div class="sidebar-section-title">RECORDINGS</div>
+        <ul id="date-list"></ul>
+    </aside>
+
+    <!-- ===== MAIN ===== -->
+    <main id="main">
+        <div id="welcome" class="welcome">
+            <h2>Select a date from the sidebar<br />or analyse a folder of recordings.</h2>
+        </div>
+
+        <!-- Timeline view (shown when a date is selected) -->
+        <div id="timeline-view" class="hidden">
+            <div class="timeline-header">
+                <h2 id="tl-date-title"></h2>
+                <div class="legend">
+                    <span class="leg baby_cry">Baby cry</span>
+                    <span class="leg yell">Yell</span>
+                    <span class="leg loud_noise">Loud noise</span>
+                    <span class="leg abuse">⚠ Abuse</span>
+                    <span class="leg talk">💬 Talk</span>
+                    <span class="leg silence">Silence</span>
+                </div>
+            </div>
+
+            <!-- Zoom toolbar -->
+            <div id="tl-toolbar">
+                <span id="tl-view-range"></span>
+                <div class="tl-zoom-btns">
+                    <button id="btn-zoom-out" title="Zoom out (scroll wheel also works)">−</button>
+                    <button id="btn-zoom-reset" title="Fit view to recordings">fit</button>
+                    <button id="btn-zoom-in" title="Zoom in (scroll wheel also works)">+</button>
+                </div>
+            </div>
+
+            <!-- Hour ruler -->
+            <div id="hour-ruler"></div>
+
+            <!-- Unified timeline –– drag to pan · scroll to zoom -->
+            <div id="tl-viewport">
+                <div id="tl-canvas"></div>
+            </div>
+
+            <!-- ── Filter bar ── -->
+            <div id="filter-bar">
+                <div class="filter-group">
+                    <span class="filter-label">Severity</span>
+                    <label class="filter-chip sev-HIGH active" data-filter="sev" data-val="HIGH">HIGH</label>
+                    <label class="filter-chip sev-MEDIUM active" data-filter="sev" data-val="MEDIUM">MEDIUM</label>
+                    <label class="filter-chip sev-LOW active" data-filter="sev" data-val="LOW">LOW</label>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Type</span>
+                    <label class="filter-chip baby_cry active" data-filter="type" data-val="baby_cry">👶 Cry</label>
+                    <label class="filter-chip yell active" data-filter="type" data-val="yell">🗣 Yell</label>
+                    <label class="filter-chip loud_noise active" data-filter="type" data-val="loud_noise">💥
+                        Noise</label>
+                    <label class="filter-chip abuse active" data-filter="type" data-val="abuse">⚠️ Abuse</label>
+                    <label class="filter-chip talk active" data-filter="type" data-val="talk">💬 Talk</label>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Min confidence</span>
+                    <div class="conf-slider-wrap">
+                        <input type="range" id="filter-conf" min="0" max="95" step="5" value="0" />
+                        <span id="filter-conf-lbl">0%</span>
+                    </div>
+                </div>
+                <div class="filter-group filter-group-right">
+                    <button id="btn-filter-reset" class="btn-filter-reset">Reset</button>
+                </div>
+            </div>
+
+            <!-- Event list below timeline -->
+            <div id="events-pane">
+                <div class="event-list-header">Events <small id="event-count"></small></div>
+                <div id="event-list"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ===== VIDEO PLAYER DRAWER ===== -->
+    <div id="player-drawer" class="hidden">
+        <div class="player-toolbar">
+            <span id="player-title">—</span>
+            <div class="player-toolbar-right">
+                <span id="player-event-badge"></span>
+                <button id="btn-goto-marker" title="Center timeline on current position">◎ On timeline</button>
+                <button id="btn-skip-silence" title="Skip silence: OFF">⏭ Skip silence</button>
+                <button id="btn-close-player">✕</button>
+            </div>
+        </div>
+        <video id="video-el" controls preload="metadata"></video>
+    </div>
+
+    <!-- ===== EXPORT MODAL ===== -->
+    <div id="export-modal" class="modal hidden">
+        <div class="modal-box modal-box-sm">
+            <div class="modal-header">
+                <h3>Export event clip</h3>
+                <button id="btn-close-export">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="export-event-info" class="export-event-info"></div>
+
+                <label class="group-label">Clip padding</label>
+                <div class="export-padding-row">
+                    <div class="export-pad-item">
+                        <span>Before event</span>
+                        <div class="pad-ctrl">
+                            <input type="number" id="exp-pre" value="5" min="0" max="60" step="1" /> s
+                        </div>
+                    </div>
+                    <div class="export-pad-item">
+                        <span>After event</span>
+                        <div class="pad-ctrl">
+                            <input type="number" id="exp-post" value="20" min="0" max="120" step="1" /> s
+                        </div>
+                    </div>
+                </div>
+
+                <label class="group-label">Format</label>
+                <div class="export-format-row">
+                    <label class="radio-chip">
+                        <input type="radio" name="exp-mode" value="video" checked /> 🎞 Video + Audio
+                    </label>
+                    <label class="radio-chip">
+                        <input type="radio" name="exp-mode" value="audio" /> 🎵 Audio only
+                    </label>
+                </div>
+
+                <div id="export-status" class="export-status hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-export-go" class="btn-primary">Export</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SETTINGS MODAL ===== -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Settings</h3>
+                <button id="btn-close-settings">✕</button>
+            </div>
+            <div class="modal-body">
+
+                <label class="group-label">Working days</label>
+                <div class="day-checkboxes">
+                    <label><input type="checkbox" data-day="0" /> Mon</label>
+                    <label><input type="checkbox" data-day="1" /> Tue</label>
+                    <label><input type="checkbox" data-day="2" /> Wed</label>
+                    <label><input type="checkbox" data-day="3" /> Thu</label>
+                    <label><input type="checkbox" data-day="4" /> Fri</label>
+                    <label><input type="checkbox" data-day="5" /> Sat</label>
+                    <label><input type="checkbox" data-day="6" /> Sun</label>
+                </div>
+
+                <label class="group-label">Working hours</label>
+                <div class="hours-row">
+                    <input type="time" id="inp-hours-start" value="00:00" />
+                    <span>to</span>
+                    <input type="time" id="inp-hours-end" value="23:59" />
+                </div>
+
+                <label class="group-label">Detection thresholds</label>
+                <div class="threshold-grid">
+                    <label>Baby cry <span id="lbl-cry">0.25</span></label>
+                    <input type="range" id="thr-cry" min="0.05" max="0.95" step="0.05" value="0.25" />
+                    <label>Yell <span id="lbl-yell">0.20</span></label>
+                    <input type="range" id="thr-yell" min="0.05" max="0.95" step="0.05" value="0.20" />
+                    <label>Loud noise <span id="lbl-noise">0.30</span></label>
+                    <input type="range" id="thr-noise" min="0.05" max="0.95" step="0.05" value="0.30" />
+                    <label>Talk <span id="lbl-talk">0.40</span></label>
+                    <input type="range" id="thr-talk" min="0.05" max="0.95" step="0.05" value="0.40" />
+                </div>
+
+                <label class="group-label">Silence filter</label>
+                <div class="threshold-grid">
+                    <label>Silence threshold (dBFS) <span id="lbl-db">-45</span></label>
+                    <input type="range" id="thr-db" min="-70" max="-10" step="5" value="-45" />
+                    <label>Min silence duration (s) <span id="lbl-minsilence">1.0</span></label>
+                    <input type="range" id="thr-minsilence" min="0.5" max="5" step="0.5" value="1.0" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-settings" class="btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

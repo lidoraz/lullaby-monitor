@@ -1,0 +1,28 @@
+# crybaby – all Python dependencies
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# Python 3.9+ is recommended.
+# ffmpeg must also be installed:  brew install ffmpeg
+
+# ── Audio ──────────────────────────────────────────────────────────────────
+# Audio loading & resampling (wav, mp3, flac, ogg, …)
+librosa>=0.10.0
+
+# ── ML / YAMNet ────────────────────────────────────────────────────────────
+# TensorFlow + TF Hub for YAMNet inference.
+# Apple-Silicon Mac → replace tensorflow with:
+#   tensorflow-macos>=2.13
+#   tensorflow-metal>=1.0
+tensorflow>=2.13,<3.0
+tensorflow-hub>=0.15.0
+
+# ── Dashboard ──────────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9    # required by FastAPI for form parsing
+
+# ── Core ───────────────────────────────────────────────────────────────────
+numpy>=1.23
+pydantic>=2.0
