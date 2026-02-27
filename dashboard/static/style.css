@@ -911,6 +911,7 @@ body.player-open {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    position: relative;
     padding: 6px 14px;
     gap: 10px;
     background: var(--bg2);
@@ -987,12 +988,14 @@ body.player-open {
     font-size: 14px;
     font-weight: 600;
     color: var(--text);
-    margin: 0 12px;
     white-space: nowrap;
-    min-width: 80px;
-    padding: 4px 8px;
+    padding: 4px 10px;
     background: var(--accent);
     border-radius: 4px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
 }
 
 #btn-auto-follow {
