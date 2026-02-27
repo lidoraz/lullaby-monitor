@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lullaby Monitor</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 
@@ -12,7 +13,7 @@
     <!-- ===== SIDEBAR ===== -->
     <aside id="sidebar">
         <div class="sidebar-header">
-            <span class="logo">� Lullaby</span>
+            <span class="logo">🛡️🍼 Lullaby</span>
             <button id="btn-settings" title="Settings">⚙️</button>
         </div>
 
@@ -116,7 +117,11 @@
 
             <!-- Event list below timeline -->
             <div id="events-pane">
-                <div class="event-list-header">Events <small id="event-count"></small></div>
+                <div class="event-list-header">
+                    <span>Events <small id="event-count"></small></span>
+                    <button id="btn-play-all" class="hidden" title="Play all visible events one by one">▶️ Play
+                        all</button>
+                </div>
                 <div id="event-list"></div>
             </div>
         </div>
@@ -126,9 +131,16 @@
     <div id="player-drawer" class="hidden">
         <div class="player-toolbar">
             <span id="player-title">—</span>
+            <div id="autoplay-bar" class="hidden">
+                <span id="autoplay-counter"></span>
+                <button id="btn-autoplay-prev" title="Previous event">‹ Prev</button>
+                <button id="btn-autoplay-next" title="Next event">Next ›</button>
+                <button id="btn-autoplay-stop" title="Stop autoplay">⏹ Stop</button>
+            </div>
             <div class="player-toolbar-right">
                 <span id="player-event-badge"></span>
                 <button id="btn-goto-marker" title="Center timeline on current position">◎ On timeline</button>
+                <button id="btn-fix-audio" title="Audio dropped out? Click to reconnect">🔇 Fix audio</button>
                 <button id="btn-skip-silence" title="Skip silence: OFF">⏭ Skip silence</button>
                 <button id="btn-close-player">✕</button>
             </div>
@@ -225,6 +237,13 @@
                     <input type="range" id="thr-db" min="-70" max="-10" step="5" value="-45" />
                     <label>Min silence duration (s) <span id="lbl-minsilence">1.0</span></label>
                     <input type="range" id="thr-minsilence" min="0.5" max="5" step="0.5" value="1.0" />
+                </div>
+
+                <label class="group-label">Autoplay</label>
+                <div class="threshold-grid">
+                    <label>Play buffer after event (s)</label>
+                    <input type="number" id="inp-autoplay-buffer" min="0" max="60" step="1" value="5"
+                        style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 7px;font-size:13px;" />
                 </div>
             </div>
             <div class="modal-footer">

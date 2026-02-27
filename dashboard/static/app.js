@@ -48,6 +48,11 @@ let _activeRec = null;           // recording currently loaded in the player
 const view = { start: 0, end: DAY_SECS };
 let _zoomPanBound = false;
 
+// Autoplay queue state
+let _autoplayQueue = [];   // [{ rec, ev }] sorted chronologically
+let _autoplayIdx = -1;   // -1 = not in autoplay mode
+let _autoplayPostBuffer = 5; // seconds to keep playing past offset_end before advancing
+
 // ============================================================
 // DOM refs
 // ============================================================
@@ -72,8 +77,16 @@ const elVideoEl = document.getElementById('video-el');
 const elPlayerTitle = document.getElementById('player-title');
 const elPlayerBadge = document.getElementById('player-event-badge');
 const elBtnSkipSilence = document.getElementById('btn-skip-silence');
+const elBtnFixAudio = document.getElementById('btn-fix-audio');
 const elBtnClosePlayer = document.getElementById('btn-close-player');
 const elBtnGotoMarker = document.getElementById('btn-goto-marker');
+const elBtnPlayAll = document.getElementById('btn-play-all');
+const elAutoplayBar = document.getElementById('autoplay-bar');
+const elAutoplayCounter = document.getElementById('autoplay-counter');
+const elBtnAutoplayPrev = document.getElementById('btn-autoplay-prev');
+const elBtnAutoplayNext = document.getElementById('btn-autoplay-next');
+const elBtnAutoplayStop = document.getElementById('btn-autoplay-stop');
+const elInpAutoplayBuffer = document.getElementById('inp-autoplay-buffer');
 const elBtnProcess = document.getElementById('btn-process');
 const elInpSource = document.getElementById('inp-source');
 const elChkForce = document.getElementById('chk-force');
@@ -112,9 +125,10 @@ let exportTarget = null;
     await loadSettingsForm();
 
     elBtnProcess.addEventListener('click', startProcessing);
-    elBtnClosePlayer.addEventListener('click', closePlayer);
+    elBtnClosePlayer.addEventListener('click', () => { stopAutoplay(); closePlayer(); });
     bindFilters();
     bindExport();
+    bindAutoplay();
 })();
 
 // ============================================================
@@ -237,6 +251,8 @@ function bindFilters() {
  */
 function applyFilters() {
     if (!currentRecs.length) return;
+    // Filters changed — any running autoplay queue is now stale
+    stopAutoplay();
 
     // Timeline markers: toggle .filtered-out class
     document.querySelectorAll('.tl-event').forEach(el => {
@@ -304,6 +320,8 @@ function renderDateList(dates) {
 // ============================================================
 async function selectDate(date) {
     currentDate = date;
+    stopAutoplay();
+    closePlayer();
 
     // Highlight active
     document.querySelectorAll('#date-list li').forEach(li => {
@@ -564,16 +582,21 @@ function renderEventList(recs) {
         return;
     }
 
-    filtered.forEach(({ rec, ev }) => {
+    filtered.forEach(({ rec, ev }, queueIdx) => {
         const meta = EVENT_META[ev.event_type] ?? { label: ev.event_type, cls: '' };
         const card = document.createElement('div');
         card.className = `event-card ${meta.cls}`;
+        card.dataset.autoplayIdx = queueIdx;  // used by highlightAutoplayCard
+        card.dataset.filePath    = rec.file_path;
+        card.dataset.evStart     = ev.offset_start;
+        card.dataset.evEnd       = ev.offset_end;
 
         const absTime = ev.abs_start.slice(11, 19);  // HH:MM:SS
         const dur = (ev.offset_end - ev.offset_start).toFixed(1);
         const conf = (ev.peak_conf * 100).toFixed(0);
 
         card.innerHTML = `
+      <div class="event-card-progress"><div class="event-card-progress-fill"></div></div>
       <div class="event-card-time">${absTime}  (${dur}s)</div>
       <div class="event-card-type">${meta.label}</div>
       <div class="event-card-sev sev-${ev.severity}">${ev.severity}</div>
@@ -584,9 +607,19 @@ function renderEventList(recs) {
             e.stopPropagation();
             openExportModal(rec, ev);
         });
-        card.addEventListener('click', () => openPlayer(rec, ev.offset_start, ev));
+        card.addEventListener('click', () => {
+            if (_autoplayIdx >= 0) {
+                // Jump autoplay queue to this event
+                playAutoplayItem(queueIdx);
+            } else {
+                openPlayer(rec, ev.offset_start, ev);
+            }
+        });
         elEventList.appendChild(card);
     });
+
+    // Show / hide "Play all" button depending on whether there are events
+    elBtnPlayAll.classList.toggle('hidden', filtered.length === 0);
 }
 
 // ============================================================
@@ -633,9 +666,121 @@ function closePlayer() {
     document.body.classList.remove('player-open');
 }
 
+// ============================================================
+// Autoplay
+// ============================================================
+function bindAutoplay() {
+    elBtnPlayAll.addEventListener('click', startAutoplay);
+    elBtnAutoplayStop.addEventListener('click', () => { stopAutoplay(); closePlayer(); });
+    elBtnAutoplayNext.addEventListener('click', () => advanceAutoplay(+1));
+    elBtnAutoplayPrev.addEventListener('click', () => advanceAutoplay(-1));
+}
+
+function buildAutoplayQueue() {
+    const all = [];
+    currentRecs.forEach(rec => {
+        if (rec.status !== 'ok') return;
+        rec.events.forEach(ev => { if (eventPassesFilter(ev)) all.push({ rec, ev }); });
+    });
+    all.sort((a, b) => a.ev.abs_start.localeCompare(b.ev.abs_start));
+    return all;
+}
+
+function startAutoplay() {
+    _autoplayQueue = buildAutoplayQueue();
+    if (!_autoplayQueue.length) return;
+    playAutoplayItem(0);
+}
+
+function stopAutoplay() {
+    _autoplayIdx = -1;
+    _autoplayQueue = [];
+    elAutoplayBar.classList.add('hidden');
+    elBtnPlayAll.classList.remove('active');
+    // Remove active highlight from all cards
+    elEventList.querySelectorAll('.event-card.autoplay-active')
+        .forEach(c => c.classList.remove('autoplay-active'));
+}
+
+function playAutoplayItem(idx) {
+    if (idx < 0 || idx >= _autoplayQueue.length) { stopAutoplay(); closePlayer(); return; }
+    _autoplayIdx = idx;
+    const { rec, ev } = _autoplayQueue[idx];
+
+    // If the same recording file is already loaded, just seek — avoids reload flicker
+    if (_activeRec && _activeRec.file_path === rec.file_path) {
+        _activeRec = rec;
+        _playerSilentRegions = rec.silent_regions || [];
+        elVideoEl.currentTime = ev.offset_start;
+        elVideoEl.play();
+        const meta = EVENT_META[ev.event_type] ?? { label: ev.event_type };
+        elPlayerBadge.textContent = `${meta.label}  ${fmtOffset(ev.offset_start)} – ${fmtOffset(ev.offset_end)}  (${ev.severity})`;
+        elPlayerBadge.style.display = '';
+    } else {
+        openPlayer(rec, ev.offset_start, ev);
+    }
+
+    updateAutoplayUI();
+    highlightAutoplayCard(idx);
+}
+
+function advanceAutoplay(delta) {
+    let next = _autoplayIdx + delta;
+
+    // When going forward, skip any events on the same recording that start
+    // before the current playback position (would require a backward seek).
+    // Also skip events fully inside the current event's play window.
+    if (delta > 0) {
+        const currentFile = _activeRec?.file_path ?? null;
+        const currentEv = _autoplayQueue[_autoplayIdx]?.ev;
+        const playWindowEnd = currentEv
+            ? currentEv.offset_end + _autoplayPostBuffer
+            : elVideoEl.currentTime;
+        while (
+            next < _autoplayQueue.length &&
+            _autoplayQueue[next].rec.file_path === currentFile &&
+            _autoplayQueue[next].ev.offset_start < playWindowEnd
+        ) {
+            next++;
+        }
+    }
+
+    playAutoplayItem(next);
+}
+
+function updateAutoplayUI() {
+    const total = _autoplayQueue.length;
+    const current = _autoplayIdx + 1;
+    elAutoplayCounter.textContent = `Event ${current} / ${total}`;
+    elAutoplayBar.classList.remove('hidden');
+    elBtnPlayAll.classList.add('active');
+    elBtnAutoplayPrev.disabled = _autoplayIdx === 0;
+    elBtnAutoplayNext.disabled = _autoplayIdx === total - 1;
+}
+
+function highlightAutoplayCard(idx) {
+    elEventList.querySelectorAll('.event-card.autoplay-active')
+        .forEach(c => c.classList.remove('autoplay-active'));
+    const card = elEventList.querySelector(`.event-card[data-autoplay-idx="${idx}"]`);
+    if (card) {
+        card.classList.add('autoplay-active');
+        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+}
+
 // Skip-silence: jump over silent regions during playback
 elVideoEl.addEventListener('timeupdate', () => {
     updatePlayhead();
+
+    // Autoplay: advance when playback passes the current event's end + post-buffer
+    if (_autoplayIdx >= 0 && _autoplayQueue[_autoplayIdx]) {
+        const { ev } = _autoplayQueue[_autoplayIdx];
+        if (elVideoEl.currentTime >= ev.offset_end + _autoplayPostBuffer) {
+            advanceAutoplay(+1);
+            return;
+        }
+    }
+
     if (!_skipSilence || !_playerSilentRegions.length) return;
     const t = elVideoEl.currentTime;
     for (const [s, e] of _playerSilentRegions) {
@@ -647,6 +792,12 @@ elVideoEl.addEventListener('timeupdate', () => {
     }
 });
 
+// If the video reaches its end mid-autoplay (event was near the end of a recording),
+// advance to the next event instead of stopping.
+elVideoEl.addEventListener('ended', () => {
+    if (_autoplayIdx >= 0) advanceAutoplay(+1);
+});
+
 // Workaround for a Safari/WebKit bug where seeking drops the audio decoder:
 // after every seek, if the video appears un-muted but audio is gone, toggling
 // the muted flag forces the browser to reconnect the audio pipeline.
@@ -655,6 +806,31 @@ elVideoEl.addEventListener('seeked', () => {
         elVideoEl.muted = true;
         elVideoEl.muted = false;
     }
+});
+
+// Manual audio reconnect button — for when the automatic seeked workaround
+// isn't enough (e.g. fMP4 + Opus on Safari: full media element cycle needed).
+elBtnFixAudio.addEventListener('click', () => {
+    const src = elVideoEl.src;
+    if (!src) return;
+    const t = elVideoEl.currentTime;
+    const wasPlaying = !elVideoEl.paused;
+    const btn = elBtnFixAudio;
+
+    btn.textContent = '⏳ Fixing…';
+    btn.disabled = true;
+
+    elVideoEl.pause();
+    elVideoEl.src = '';
+    elVideoEl.load();
+    elVideoEl.src = src;
+    elVideoEl.load();
+    elVideoEl.addEventListener('loadedmetadata', () => {
+        elVideoEl.currentTime = t;
+        if (wasPlaying) elVideoEl.play();
+        btn.textContent = '🔊 Fix audio';
+        btn.disabled = false;
+    }, { once: true });
 });
 
 // Toggle skip-silence with the button in the player toolbar
@@ -674,7 +850,11 @@ elBtnGotoMarker.addEventListener('click', () => {
 
 // Playhead position — absolute seconds-since-midnight mapped into the view window
 function updatePlayhead() {
-    if (!_activeRec) { elTlPlayhead.style.visibility = 'hidden'; return; }
+    if (!_activeRec) {
+        elTlPlayhead.style.visibility = 'hidden';
+        updateEventCardProgress(null, 0);
+        return;
+    }
     const absSecs = secsSinceMidnight(_activeRec.rec_start) + elVideoEl.currentTime;
     const pct = (absSecs - view.start) / (view.end - view.start) * 100;
     if (pct < 0 || pct > 100) {
@@ -683,6 +863,24 @@ function updatePlayhead() {
         elTlPlayhead.style.left = pct.toFixed(4) + '%';
         elTlPlayhead.style.visibility = 'visible';
     }
+    updateEventCardProgress(_activeRec.file_path, elVideoEl.currentTime);
+}
+
+function updateEventCardProgress(filePath, currentTime) {
+    elEventList.querySelectorAll('.event-card').forEach(card => {
+        const fill = card.querySelector('.event-card-progress-fill');
+        if (!fill) return;
+        if (!filePath || card.dataset.filePath !== filePath) {
+            fill.style.height = '0%';
+            return;
+        }
+        const start = parseFloat(card.dataset.evStart);
+        const end   = parseFloat(card.dataset.evEnd);
+        const dur   = end - start;
+        if (dur <= 0) { fill.style.height = '100%'; return; }
+        const pct = Math.min(100, Math.max(0, (currentTime - start) / dur * 100));
+        fill.style.height = pct.toFixed(2) + '%';
+    });
 }
 
 // Block the video element's own native arrow-key seek (fires at target phase)
@@ -767,6 +965,16 @@ function bindSettings() {
     });
     elBtnSaveSettings.addEventListener('click', saveSettings);
 
+    // Load client-side preferences from localStorage
+    const saved = localStorage.getItem('autoplayPostBuffer');
+    if (saved !== null) _autoplayPostBuffer = parseFloat(saved);
+    if (elInpAutoplayBuffer) {
+        elInpAutoplayBuffer.value = _autoplayPostBuffer;
+        elInpAutoplayBuffer.addEventListener('input', () => {
+            _autoplayPostBuffer = Math.max(0, parseFloat(elInpAutoplayBuffer.value) || 0);
+        });
+    }
+
     // Live range labels
     const rangeMap = [
         ['thr-cry', 'lbl-cry'],
@@ -809,6 +1017,11 @@ function setRange(rid, lid, val) {
 }
 
 async function saveSettings() {
+    // Save client-side preferences
+    if (elInpAutoplayBuffer) {
+        localStorage.setItem('autoplayPostBuffer', elInpAutoplayBuffer.value);
+    }
+
     const days = Array.from(
         document.querySelectorAll('.day-checkboxes input:checked')
     ).map(cb => parseInt(cb.dataset.day));

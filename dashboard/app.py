@@ -47,6 +47,15 @@ from pipeline.processor import Processor
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Suppress the flood of 206 Partial Content lines for /video streaming.
+# All other access log lines (API calls, errors) remain visible.
+class _SuppressVideoAccess(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not ('GET /video' in msg and '206' in msg)
+
+logging.getLogger('uvicorn.access').addFilter(_SuppressVideoAccess())
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
