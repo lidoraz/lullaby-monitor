@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================
-#  crybaby — start the dashboard
+#  Lullaby Monitor — start the dashboard
 #  Run:  bash start.sh
 #  Run on a custom port:  bash start.sh --port 8080
 # =============================================================
@@ -37,7 +37,7 @@ done
 
 # ── Banner ─────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}🍼  crybaby Dashboard${RESET}"
+echo -e "${BOLD}�  Lullaby Monitor${RESET}"
 echo "────────────────────────────────────────"
 echo -e "  Open your browser at: ${GREEN}${BOLD}http://localhost:${PORT}${RESET}"
 echo "  Press  Ctrl+C  to stop."

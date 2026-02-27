@@ -20,14 +20,14 @@ def _open_browser(url: str, delay: float = 1.2) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run the crybaby dashboard.")
+    parser = argparse.ArgumentParser(description="Run the Lullaby Monitor dashboard.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
     url = f"http://{args.host}:{args.port}"
-    print(f"\n🍼  crybaby dashboard → {url}\n")
+    print(f"\n�  Lullaby Monitor → {url}\n")
 
     if not args.no_browser:
         _open_browser(url)

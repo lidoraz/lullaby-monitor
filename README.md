@@ -1,11 +1,10 @@
-# crybaby — Baby Monitor & Dashboard
+# Lullaby Monitor
 
-Detects baby cry, caregiver yelling, and loud noise events in Xiaomi (or any)
-camera recordings, and presents them in a **web dashboard** with a day-by-day
-timeline — similar to Xiaomi Home — where events are shown inline so you can
-jump directly to any moment in the video.
+**Sleep knowing they're safe.**
 
-No training data required — powered by **YAMNet** (Google, pre-trained on AudioSet).
+Lullaby Monitor detects baby cry, caregiver yelling, and concerning audio patterns in camera recordings, and presents them in a **web dashboard** with an interactive timeline — letting parents quickly identify important moments without wading through hours of footage.
+
+No training data required — powered by **YAMNet** (Google, pre-trained on AudioSet), with built-in detection for baby cries, yelling, loud noise, and co-occurrence abuse patterns.
 
 ---
 

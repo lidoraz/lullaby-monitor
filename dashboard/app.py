@@ -58,7 +58,7 @@ DB_PATH      = DATA_DIR / "crybaby.db"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 EXPORT_DIR   = DATA_DIR / "exports"
 
-app = FastAPI(title="Crybaby Dashboard", version="1.0.0")
+app = FastAPI(title="Lullaby Monitor", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
