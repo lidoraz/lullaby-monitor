@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lullaby Monitor</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 
@@ -12,7 +13,7 @@
     <!-- ===== SIDEBAR ===== -->
     <aside id="sidebar">
         <div class="sidebar-header">
-            <span class="logo">� Lullaby</span>
+            <span class="logo">🛡️🍼 Lullaby</span>
             <button id="btn-settings" title="Settings">⚙️</button>
         </div>
 
@@ -57,14 +58,6 @@
         <div id="timeline-view" class="hidden">
             <div class="timeline-header">
                 <h2 id="tl-date-title"></h2>
-                <div class="legend">
-                    <span class="leg baby_cry">Baby cry</span>
-                    <span class="leg yell">Yell</span>
-                    <span class="leg loud_noise">Loud noise</span>
-                    <span class="leg abuse">⚠ Abuse</span>
-                    <span class="leg talk">💬 Talk</span>
-                    <span class="leg silence">Silence</span>
-                </div>
             </div>
 
             <!-- Zoom toolbar -->
@@ -95,18 +88,25 @@
                 </div>
                 <div class="filter-group">
                     <span class="filter-label">Type</span>
-                    <label class="filter-chip baby_cry active" data-filter="type" data-val="baby_cry">👶 Cry</label>
-                    <label class="filter-chip yell active" data-filter="type" data-val="yell">🗣 Yell</label>
-                    <label class="filter-chip loud_noise active" data-filter="type" data-val="loud_noise">💥
+                    <label class="filter-chip baby_cry active" data-filter="type" data-val="baby_cry"
+                        title="Infant or baby crying detected by audio analysis">👶 Cry</label>
+                    <label class="filter-chip yell" data-filter="type" data-val="yell"
+                        title="Shouting, screaming, or loud angry voice detected">🗣 Yell</label>
+                    <label class="filter-chip loud_noise" data-filter="type" data-val="loud_noise"
+                        title="Sudden loud sound such as crash, bang, or impact">💥
                         Noise</label>
-                    <label class="filter-chip abuse active" data-filter="type" data-val="abuse">⚠️ Abuse</label>
-                    <label class="filter-chip talk active" data-filter="type" data-val="talk">💬 Talk</label>
+                    <label class="filter-chip abuse active" data-filter="type" data-val="abuse"
+                        title="Baby crying + caregiver yelling within 3 seconds (potential crisis)">⚠️ Abuse</label>
+                    <label class="filter-chip talk" data-filter="type" data-val="talk"
+                        title="Speech or conversation detected (caregiver present)">💬 Talk</label>
+                    <span class="filter-chip silence" title="Quiet periods — no significant sound detected"
+                        style="opacity:0.6; cursor:default; pointer-events:none;">🔇 Silence</span>
                 </div>
                 <div class="filter-group">
                     <span class="filter-label">Min confidence</span>
                     <div class="conf-slider-wrap">
-                        <input type="range" id="filter-conf" min="0" max="95" step="5" value="0" />
-                        <span id="filter-conf-lbl">0%</span>
+                        <input type="range" id="filter-conf" min="0" max="95" step="5" value="50" />
+                        <span id="filter-conf-lbl">50%</span>
                     </div>
                 </div>
                 <div class="filter-group filter-group-right">
@@ -116,7 +116,11 @@
 
             <!-- Event list below timeline -->
             <div id="events-pane">
-                <div class="event-list-header">Events <small id="event-count"></small></div>
+                <div class="event-list-header">
+                    <span>Events <small id="event-count"></small></span>
+                    <button id="btn-play-all" class="hidden" title="Play all visible events one by one">▶️ Play
+                        all</button>
+                </div>
                 <div id="event-list"></div>
             </div>
         </div>
@@ -125,10 +129,23 @@
     <!-- ===== VIDEO PLAYER DRAWER ===== -->
     <div id="player-drawer" class="hidden">
         <div class="player-toolbar">
-            <span id="player-title">—</span>
+            <div class="player-toolbar-left">
+                <span id="player-title">—</span>
+                <span id="player-timestamp" class="player-timestamp">--:-- / --:--</span>
+            </div>
+            <div id="autoplay-bar" class="hidden">
+                <span id="autoplay-counter"></span>
+                <button id="btn-autoplay-prev" title="Previous event">‹ Prev</button>
+                <button id="btn-autoplay-next" title="Next event">Next ›</button>
+                <button id="btn-autoplay-stop" title="Stop autoplay">⏹ Stop</button>
+            </div>
             <div class="player-toolbar-right">
+                <span id="player-global-timestamp" class="player-global-timestamp">--:--:--</span>
                 <span id="player-event-badge"></span>
-                <button id="btn-goto-marker" title="Center timeline on current position">◎ On timeline</button>
+                <button id="btn-auto-follow" class="active"
+                    title="Auto-follow: keep timeline centred on playback position">📌 Follow</button>
+                <button id="btn-goto-marker" title="Jump timeline to current position now">◎ Jump</button>
+                <button id="btn-fix-audio" title="Audio dropped out? Click to reconnect">🔇 Fix audio</button>
                 <button id="btn-skip-silence" title="Skip silence: OFF">⏭ Skip silence</button>
                 <button id="btn-close-player">✕</button>
             </div>
@@ -225,6 +242,13 @@
                     <input type="range" id="thr-db" min="-70" max="-10" step="5" value="-45" />
                     <label>Min silence duration (s) <span id="lbl-minsilence">1.0</span></label>
                     <input type="range" id="thr-minsilence" min="0.5" max="5" step="0.5" value="1.0" />
+                </div>
+
+                <label class="group-label">Autoplay</label>
+                <div class="threshold-grid">
+                    <label>Play buffer after event (s)</label>
+                    <input type="number" id="inp-autoplay-buffer" min="0" max="60" step="1" value="5"
+                        style="width:70px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 7px;font-size:13px;" />
                 </div>
             </div>
             <div class="modal-footer">
