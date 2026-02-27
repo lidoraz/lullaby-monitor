@@ -6,11 +6,31 @@ const API = '';   // same-origin
 
 // ---- Event-type display config ----
 const EVENT_META = {
-    baby_cry: { label: '👶 Baby cry', cls: 'baby_cry' },
-    yell: { label: '🗣 Yell', cls: 'yell' },
-    loud_noise: { label: '💥 Loud noise', cls: 'loud_noise' },
-    abuse: { label: '⚠️ Abuse alert', cls: 'abuse' },
-    talk: { label: '💬 Talk', cls: 'talk' },
+    baby_cry: {
+        label: '👶 Baby cry',
+        cls: 'baby_cry',
+        tooltip: 'Infant or baby crying detected by audio analysis',
+    },
+    yell: {
+        label: '🗣 Yell',
+        cls: 'yell',
+        tooltip: 'Shouting, screaming, or loud angry voice detected',
+    },
+    loud_noise: {
+        label: '💥 Loud noise',
+        cls: 'loud_noise',
+        tooltip: 'Sudden loud sound such as crash, bang, or impact',
+    },
+    abuse: {
+        label: '⚠️ Abuse alert',
+        cls: 'abuse',
+        tooltip: 'Baby crying + caregiver yelling within 3 seconds (potential crisis)',
+    },
+    talk: {
+        label: '💬 Talk',
+        cls: 'talk',
+        tooltip: 'Speech or conversation detected (caregiver present)',
+    },
 };
 
 // seconds in a full day — timeline x-axis spans this
@@ -21,8 +41,8 @@ const DAY_SECS = 86400;
 // ============================================================
 const filters = {
     sev: new Set(['HIGH', 'MEDIUM', 'LOW']),
-    type: new Set(['baby_cry', 'yell', 'loud_noise', 'abuse', 'talk']),
-    minConf: 0,   // 0–1
+    type: new Set(['baby_cry', 'abuse']),
+    minConf: 0.5,   // 0–1 (50% by default)
 };
 
 function eventPassesFilter(ev) {
@@ -35,6 +55,9 @@ function eventPassesFilter(ev) {
 // ============================================================
 // State
 // ============================================================
+let _autoFollow = true;   // keep timeline centred on playhead by default
+let _inAutoFollow = false; // re-entrancy guard – prevents setView→redrawTimeline→updatePlayhead loop
+
 let currentDate = null;
 let currentRecs = [];   // array of recording objects for selected date
 let evtSource = null; // SSE EventSource
@@ -70,16 +93,20 @@ const elTlPlayhead = document.createElement('div');
 elTlPlayhead.id = 'tl-playhead';
 elTlPlayhead.style.visibility = 'hidden';
 elTlCanvas.appendChild(elTlPlayhead);
+const elEventsPane = document.getElementById('events-pane');
 const elEventList = document.getElementById('event-list');
 const elEventCount = document.getElementById('event-count');
 const elPlayerDrawer = document.getElementById('player-drawer');
 const elVideoEl = document.getElementById('video-el');
 const elPlayerTitle = document.getElementById('player-title');
 const elPlayerBadge = document.getElementById('player-event-badge');
+const elPlayerTimestamp = document.getElementById('player-timestamp');
+const elPlayerGlobalTimestamp = document.getElementById('player-global-timestamp');
 const elBtnSkipSilence = document.getElementById('btn-skip-silence');
 const elBtnFixAudio = document.getElementById('btn-fix-audio');
 const elBtnClosePlayer = document.getElementById('btn-close-player');
 const elBtnGotoMarker = document.getElementById('btn-goto-marker');
+const elBtnAutoFollow = document.getElementById('btn-auto-follow');
 const elBtnPlayAll = document.getElementById('btn-play-all');
 const elAutoplayBar = document.getElementById('autoplay-bar');
 const elAutoplayCounter = document.getElementById('autoplay-counter');
@@ -412,7 +439,6 @@ function renderCanvas(recs) {
 
     const okRecs = recs.filter(r => r.status === 'ok');
     if (!okRecs.length) {
-        // Still re-attach the playhead so it stays in the DOM
         elTlCanvas.appendChild(elTlPlayhead);
         return;
     }
@@ -462,8 +488,10 @@ function renderCanvas(recs) {
             el.style.left = (ev.offset_start / rec.duration * 100).toFixed(4) + '%';
             el.style.width = Math.max((ev.offset_end - ev.offset_start) / rec.duration * 100, 0.3).toFixed(4) + '%';
             const evLabel = EVENT_META[ev.event_type]?.label ?? ev.event_type;
+            const evTooltip = EVENT_META[ev.event_type]?.tooltip ?? ev.event_type;
             const confPct = Math.round((ev.peak_conf ?? 0) * 100);
             el.dataset.tip = `${evLabel}  ${fmtOffset(ev.offset_start)}  ${ev.severity}  ${confPct}%`;
+            el.title = `${evTooltip}\n${fmtOffset(ev.offset_start)} – ${fmtOffset(ev.offset_end)} (${ev.severity}, ${confPct}%)`;
             el._eventData = ev;
             el.addEventListener('click', e => { e.stopPropagation(); openPlayer(rec, ev.offset_start, ev); });
             block.appendChild(el);
@@ -473,7 +501,7 @@ function renderCanvas(recs) {
         elTlCanvas.appendChild(block);
     });
 
-    // Always keep the playhead on top
+    // Always keep the playhead on top inside the canvas
     elTlCanvas.appendChild(elTlPlayhead);
 }
 
@@ -587,18 +615,19 @@ function renderEventList(recs) {
         const card = document.createElement('div');
         card.className = `event-card ${meta.cls}`;
         card.dataset.autoplayIdx = queueIdx;  // used by highlightAutoplayCard
-        card.dataset.filePath    = rec.file_path;
-        card.dataset.evStart     = ev.offset_start;
-        card.dataset.evEnd       = ev.offset_end;
+        card.dataset.filePath = rec.file_path;
+        card.dataset.evStart = ev.offset_start;
+        card.dataset.evEnd = ev.offset_end;
 
         const absTime = ev.abs_start.slice(11, 19);  // HH:MM:SS
         const dur = (ev.offset_end - ev.offset_start).toFixed(1);
         const conf = (ev.peak_conf * 100).toFixed(0);
 
+        const tooltip = meta.tooltip || ev.event_type;
         card.innerHTML = `
       <div class="event-card-progress"><div class="event-card-progress-fill"></div></div>
       <div class="event-card-time">${absTime}  (${dur}s)</div>
-      <div class="event-card-type">${meta.label}</div>
+      <div class="event-card-type" title="${tooltip}">${meta.label}</div>
       <div class="event-card-sev sev-${ev.severity}">${ev.severity}</div>
       <div class="event-card-conf">${conf}%</div>
       <button class="btn-export-event" title="Export clip">⬇ Export</button>`;
@@ -645,10 +674,13 @@ function openPlayer(rec, offsetSecs, ev) {
 
     if (ev) {
         const meta = EVENT_META[ev.event_type] ?? { label: ev.event_type };
+        const tooltip = meta.tooltip || ev.event_type;
         elPlayerBadge.textContent = `${meta.label}  ${fmtOffset(ev.offset_start)} – ${fmtOffset(ev.offset_end)}  (${ev.severity})`;
+        elPlayerBadge.title = tooltip;
         elPlayerBadge.style.display = '';
     } else {
         elPlayerBadge.textContent = '';
+        elPlayerBadge.title = '';
         elPlayerBadge.style.display = 'none';
     }
 
@@ -662,6 +694,9 @@ function closePlayer() {
     _playerSilentRegions = [];
     _activeRec = null;
     elTlPlayhead.style.visibility = 'hidden';
+    elPlayerTimestamp.textContent = '--:-- / --:--';
+    elPlayerGlobalTimestamp.textContent = '--:--:--';
+    if (_activeEventCard) { _activeEventCard.classList.remove('playing-active'); _activeEventCard = null; }
     elPlayerDrawer.classList.add('hidden');
     document.body.classList.remove('player-open');
 }
@@ -771,6 +806,9 @@ function highlightAutoplayCard(idx) {
 // Skip-silence: jump over silent regions during playback
 elVideoEl.addEventListener('timeupdate', () => {
     updatePlayhead();
+    updatePlayerTimestamp();
+    updateGlobalTimestamp();
+    updateEventCardProgress(_activeRec?.file_path, elVideoEl.currentTime);
 
     // Autoplay: advance when playback passes the current event's end + post-buffer
     if (_autoplayIdx >= 0 && _autoplayQueue[_autoplayIdx]) {
@@ -848,6 +886,14 @@ elBtnGotoMarker.addEventListener('click', () => {
     setView(absSecs - span / 2, absSecs + span / 2);
 });
 
+elBtnAutoFollow.addEventListener('click', () => {
+    _autoFollow = !_autoFollow;
+    elBtnAutoFollow.classList.toggle('active', _autoFollow);
+    elBtnAutoFollow.title = _autoFollow
+        ? 'Auto-follow: keep timeline centred on playback position'
+        : 'Auto-follow: OFF';
+});
+
 // Playhead position — absolute seconds-since-midnight mapped into the view window
 function updatePlayhead() {
     if (!_activeRec) {
@@ -857,13 +903,81 @@ function updatePlayhead() {
     }
     const absSecs = secsSinceMidnight(_activeRec.rec_start) + elVideoEl.currentTime;
     const pct = (absSecs - view.start) / (view.end - view.start) * 100;
-    if (pct < 0 || pct > 100) {
+
+    // Auto-follow: pan the view so the playhead stays near the centre
+    if (_autoFollow && !_inAutoFollow) {
+        _inAutoFollow = true;
+        const span = view.end - view.start;
+        setView(absSecs - span / 2, absSecs + span / 2);
+        _inAutoFollow = false;
+    }
+
+    const pctAfterPan = _autoFollow ? 50 : pct;
+    if (pctAfterPan < 0 || pctAfterPan > 100) {
         elTlPlayhead.style.visibility = 'hidden';
     } else {
-        elTlPlayhead.style.left = pct.toFixed(4) + '%';
+        elTlPlayhead.style.left = pctAfterPan.toFixed(4) + '%';
         elTlPlayhead.style.visibility = 'visible';
     }
     updateEventCardProgress(_activeRec.file_path, elVideoEl.currentTime);
+    scrollToActiveEventCard();
+}
+
+let _activeEventCard = null;  // currently highlighted event card
+
+function scrollToActiveEventCard() {
+    if (!_activeRec) {
+        if (_activeEventCard) { _activeEventCard.classList.remove('playing-active'); _activeEventCard = null; }
+        return;
+    }
+    const t = elVideoEl.currentTime;
+    let bestCard = null;
+    elEventList.querySelectorAll('.event-card').forEach(card => {
+        if (card.dataset.filePath !== _activeRec.file_path) return;
+        const start = parseFloat(card.dataset.evStart);
+        const end = parseFloat(card.dataset.evEnd);
+        if (t >= start && t <= end) bestCard = card;
+    });
+
+    // Only switch highlight when playback enters a new event window.
+    // Between events (bestCard === null) keep the previous card highlighted.
+    if (bestCard !== null && bestCard !== _activeEventCard) {
+        if (_activeEventCard) _activeEventCard.classList.remove('playing-active');
+        _activeEventCard = bestCard;
+        _activeEventCard.classList.add('playing-active');
+        // Scroll so the active card sits ~30% from top, keeping future events visible
+        const paneTop = elEventsPane.getBoundingClientRect().top;
+        const cardTop = _activeEventCard.getBoundingClientRect().top;
+        const offset = cardTop - paneTop - elEventsPane.clientHeight * 0.3;
+        elEventsPane.scrollBy({ top: offset, behavior: 'smooth' });
+    }
+}
+
+function updatePlayerTimestamp() {
+    const cur = elVideoEl.currentTime;
+    const dur = elVideoEl.duration || 0;
+    const fmtTime = (s) => {
+        const mins = Math.floor(s / 60);
+        const secs = Math.floor(s % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+    elPlayerTimestamp.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
+}
+
+function updateGlobalTimestamp() {
+    if (!_activeRec) {
+        elPlayerGlobalTimestamp.textContent = '-- :--:--';
+        return;
+    }
+    // Parse ISO datetime: "2025-01-15T14:32:45.123Z"
+    const startTime = new Date(_activeRec.rec_start);
+    const elapsedMs = elVideoEl.currentTime * 1000;
+    const currentTime = new Date(startTime.getTime() + elapsedMs);
+
+    const h = currentTime.getHours().toString().padStart(2, '0');
+    const m = currentTime.getMinutes().toString().padStart(2, '0');
+    const s = currentTime.getSeconds().toString().padStart(2, '0');
+    elPlayerGlobalTimestamp.textContent = `${h}:${m}:${s}`;
 }
 
 function updateEventCardProgress(filePath, currentTime) {
@@ -875,8 +989,8 @@ function updateEventCardProgress(filePath, currentTime) {
             return;
         }
         const start = parseFloat(card.dataset.evStart);
-        const end   = parseFloat(card.dataset.evEnd);
-        const dur   = end - start;
+        const end = parseFloat(card.dataset.evEnd);
+        const dur = end - start;
         if (dur <= 0) { fill.style.height = '100%'; return; }
         const pct = Math.min(100, Math.max(0, (currentTime - start) / dur * 100));
         fill.style.height = pct.toFixed(2) + '%';
